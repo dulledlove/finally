@@ -19,6 +19,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
 import com.example.colordetector.R
+import android.widget.CheckBox
 
 class ScreenCaptureService : Service() {
 
