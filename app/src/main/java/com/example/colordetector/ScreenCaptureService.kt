@@ -15,6 +15,10 @@ import android.widget.*
 import androidx.core.app.NotificationCompat
 import java.nio.ByteBuffer
 import android.hardware.display.DisplayManager
+import android.view.LayoutInflater
+import android.view.View
+import android.widget.Button
+import com.example.colordetector.R
 
 class ScreenCaptureService : Service() {
 
