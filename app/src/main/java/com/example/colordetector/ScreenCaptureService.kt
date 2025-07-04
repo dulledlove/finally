@@ -14,6 +14,7 @@ import android.view.*
 import android.widget.*
 import androidx.core.app.NotificationCompat
 import java.nio.ByteBuffer
+import android.hardware.display.DisplayManager
 
 class ScreenCaptureService : Service() {
 
