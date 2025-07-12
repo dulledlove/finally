@@ -1,61 +1,81 @@
-package com.example.colordetector
+
+package com.example.clickcolor
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
-import android.media.projection.MediaProjectionManager
-import android.os.Build
-import android.os.Bundle
-import android.provider.Settings
+import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
+import android.hardware.display.MediaProjection
+import android.hardware.display.MediaProjectionManager
+import android.media.ImageReader
+import android.os.*
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 
-class MainActivity : Activity() {
+class MainActivity : AppCompatActivity() {
 
-    private val REQUEST_SCREEN_CAPTURE = 1000
-    private val REQUEST_OVERLAY_PERMISSION = 1001
+    private val REQUEST_CODE_SCREEN_CAPTURE = 1001
+    private lateinit var mediaProjectionManager: MediaProjectionManager
+    private var mediaProjection: MediaProjection? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        // Request overlay permission if needed
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                android.net.Uri.parse("package:$packageName")
-            )
-            startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION)
-        } else {
-            requestScreenCapture()
-        }
-    }
-
-    private fun requestScreenCapture() {
-        val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val intent = mpm.createScreenCaptureIntent()
-        startActivityForResult(intent, REQUEST_SCREEN_CAPTURE)
+        mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val intent = mediaProjectionManager.createScreenCaptureIntent()
+        startActivityForResult(intent, REQUEST_CODE_SCREEN_CAPTURE)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == REQUEST_OVERLAY_PERMISSION) {
-            if (Settings.canDrawOverlays(this)) {
-                requestScreenCapture()
-            } else {
-                Toast.makeText(this, "Overlay permission denied", Toast.LENGTH_SHORT).show()
-                finish()
-            }
-        }
-
-        if (requestCode == REQUEST_SCREEN_CAPTURE && resultCode == RESULT_OK && data != null) {
-            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-                putExtra("resultCode", resultCode)
-                putExtra("data", data)
-            }
-            startService(serviceIntent)
-            finish()
-        } else if (requestCode == REQUEST_SCREEN_CAPTURE) {
+        if (requestCode == REQUEST_CODE_SCREEN_CAPTURE && resultCode == Activity.RESULT_OK && data != null) {
+            mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data)
+            showColorPickerOverlay()
+        } else {
             Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
-            finish()
         }
+    }
+
+    private fun showColorPickerOverlay() {
+        val metrics = Resources.getSystem().displayMetrics
+        val width = metrics.widthPixels
+        val height = metrics.heightPixels
+        val dpi = metrics.densityDpi
+
+        val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+        mediaProjection?.createVirtualDisplay(
+            "ColorPickDisplay",
+            width, height, dpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader.surface, null, null
+        )
+
+        Handler(Looper.getMainLooper()).postDelayed({
+            val image = imageReader.acquireLatestImage()
+            image?.let {
+                val plane = it.planes[0]
+                val buffer = plane.buffer
+                val pixelStride = plane.pixelStride
+                val rowStride = plane.rowStride
+                val rowPadding = rowStride - pixelStride * width
+
+                val bitmap = Bitmap.createBitmap(
+                    width + rowPadding / pixelStride,
+                    height, Bitmap.Config.ARGB_8888
+                )
+                bitmap.copyPixelsFromBuffer(buffer)
+                image.close()
+                ColorPickerOverlay(this, bitmap).show { x, y, r, g, color ->
+                    val prefs = getSharedPreferences("config", Context.MODE_PRIVATE)
+                    prefs.edit().putInt("x", x).putInt("y", y).putInt("color", color).apply()
+                    Toast.makeText(this, "Saved color at ($x,$y). Starting monitor.", Toast.LENGTH_SHORT).show()
+                    ScreenCaptureHelper(this, mediaProjection!!).startColorMonitoring()
+                }
+            }
+        }, 1000)
     }
 }
